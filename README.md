@@ -129,7 +129,7 @@ python eval_dreambooth.py \
   --outdir benchmarks
 ```
 
-Text-image metrics such as `clip-t` and `vqa` require the optional `t2v-metrics` package (borrow from [TextBoost](https://github.com/nahyeonkaty/textboost)). Install it only when computing full-dataset quantitative results.
+The default DreamBooth metrics are `clip-t`, `clip-i`, and `dino`. The metric implementation follows the common evaluation protocol used by prior work and is partly inspired by `t2v-metrics`, but the current default evaluation does not require installing `t2v-metrics`.
 
 ## Some Qualitative Results
 

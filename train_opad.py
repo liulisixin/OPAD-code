@@ -1053,13 +1053,19 @@ def parse_args(input_args=None):
         "--feed_teacher_student_infer_steps",
         type=int,
         default=0,
-        help=("Number of steps when the teachers do inference in the guidance of x0 for the student."),
+        help=(
+            "Teacher inference steps for refining the student x0 target. "
+            "If <= 0, use the faster random-timestep teacher x0 prediction branch."
+        ),
     )
     parser.add_argument(
         "--feed_teacher_student_denoise_steps",
         type=int,
         default=1,
-        help=("Real denoise steps when the teachers do inference in the guidance of x0 for the student."),
+        help=(
+            "Maximum teacher denoising steps when --feed_teacher_student_infer_steps > 0. "
+            "Ignored when --feed_teacher_student_infer_steps <= 0."
+        ),
     )
     parser.add_argument(
         "--not_save_teacher",
@@ -1863,9 +1869,7 @@ def main(args):
             ip_model = IPAdapter(None, image_encoder_path, ip_ckpt, accelerator.device)
         elif args.ipadapter == "ip-adapter-faceid-plus_sd15.bin":
             # face id
-            image_encoder_path = "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
-            ip_ckpt = args.ip_adapter_faceid_ckpt
-            ip_model = IPAdapterFaceIDPlus(pipeline_train, image_encoder_path, ip_ckpt, accelerator.device, torch_dtype=weight_dtype)
+            pass
         else:
             raise NotImplementedError
         ip_model = accelerator.prepare(

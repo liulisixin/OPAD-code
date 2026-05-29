@@ -123,7 +123,7 @@ def parse_args():
     # parser.add_argument("--checkpoint", type=int, default=None)
     parser.add_argument("--instances", type=str, nargs="+", default=None)
     parser.add_argument("--skip-gen", action="store_true")
-    parser.add_argument("--metric", type=str, nargs="+", default=["clip-i", "dino"])
+    parser.add_argument("--metric", type=str, nargs="+", default=["clip-t", "clip-i", "dino"])
     parser.add_argument("--has_unseen", action="store_true")
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3])
     parser.add_argument("--dreambooth_path", type=str, default=os.environ.get("DREAMBOOTH_DATA_DIR", "../dreambooth/dataset"))
@@ -334,33 +334,43 @@ def generate(args, device):
 
 
 def clip_score(generated_image_path, device):
-    import t2v_metrics
-    score = t2v_metrics.CLIPScore(model='openai:ViT-L-14-336', device=device)
-    score.eval().requires_grad_(False)
+    model, preprocess = clip.load("ViT-L/14@336px", device=device)
+    model.eval().requires_grad_(False)
+    preprocess = v2.Compose([
+        v2.Resize((512, 512)),
+        preprocess,
+    ])
 
     def _path_to_prompt(path):
-        basename = os.path.basename(path)  # prompt.png
+        basename = os.path.basename(path)
         return basename.replace(".png", "").replace("_", " ")
-    
+
     scores = {}
     scores_list = []
     for instance in sorted(os.listdir(generated_image_path)):
         image_paths = sorted(glob.glob(os.path.join(generated_image_path, instance, "*.png")))
-        dataset = [
-            {"images": [image_path], "texts": [_path_to_prompt(image_path)]}
+        images = torch.stack([
+            preprocess(Image.open(image_path).convert("RGB"))
             for image_path in image_paths
-        ]
-        score_instance = score.batch_forward(dataset=dataset, batch_size=32)
+        ]).to(device)
+        texts = clip.tokenize([_path_to_prompt(image_path) for image_path in image_paths]).to(device)
+
+        image_features = model.encode_image(images)
+        text_features = model.encode_text(texts)
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        score_instance = (image_features * text_features).sum(dim=-1).float()
+
         scores_list.append(score_instance)
         scores[instance] = score_instance.mean()
 
-    del score
+    del model
     torch.cuda.empty_cache()
 
     scores_list = torch.cat(scores_list)
     print(f"Total samples: {scores_list.size(0)}")
     print(f"CLIP-T: {scores_list.mean():.3f} +/- {scores_list.std():.3f}")
-    return {"clip_score": scores}
+    return {"clip_t": scores}
 
 
 def clip_i_old(args, generated_image_path, device):
@@ -704,24 +714,7 @@ def main(args):
     filename = f"metric{ckpt}{desc}v2.csv"
 
 
-    score_dict = {
-        seed: {
-            # Image-text scores
-            "clip_score": torch.tensor([0.0]),
-            "vqa_score": torch.tensor([0.0]),
-            # Image-image scores
-            "clip_i": torch.tensor([0.0]),
-            "dino": torch.tensor([0.0]),
-            **(
-            {
-                "clip_i_unseen": torch.tensor([0.0]),
-                "dino_unseen": torch.tensor([0.0]),
-            }
-            if args.has_unseen else {}
-        ),
-        }
-        for seed in args.seeds
-    }
+    score_dict = {seed: {} for seed in args.seeds}
 
     for seed in args.seeds:
         path_with_seed = os.path.join(generated_image_path, f"seed{seed}")

@@ -17,3 +17,5 @@ hf_cache/
 *.csv
 *.err
 *.out
+weights/
+*.zip
